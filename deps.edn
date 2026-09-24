@@ -1,0 +1,4 @@
+{:paths ["src" "resources"]
+ ;; No runtime deps yet. kotoba-lang/authority and io-ipld join when the
+ ;; verifier lands, each pinned as an explicit floor with the reason beside it.
+ :deps {}}

@@ -1,0 +1,10 @@
+{:format :dango.block-shape/v1
+ :decision "adr-2609242100-capability-chain-is-ipld-sexpr-biscuit-is-an-adapter"
+ :keys {:prev     {:type :cid-or-nil :note "nil only on the root block"}
+        :grant    {:type :map :keys {:caps   {:type :set-of-cap :note "[kind resource], kind a qualified keyword, resource a kotoba:// string"}
+                                     :holder {:type :did-or-nil :note "a later block may add a holder, never re-address (adr-2608220100)"}
+                                     :before {:type :epoch-seconds}}}
+        :caveats  {:type :vector-of-predicate}
+        :next-key {:type :ed25519-public-key :note "32 bytes"}}
+ :required #{:prev :grant :caveats :next-key}
+ :closed true}

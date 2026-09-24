@@ -1,0 +1,27 @@
+(ns dango.shape-test
+  (:require [cljs.test :refer [deftest is]]
+            [dango.shape :as shape]))
+
+(def good
+  {:prev nil
+   :grant {:caps #{[:data/read "kotoba://storage/did:key:z6Mk/ds"]}
+           :holder "did:key:z6Mk" :before 1790000000}
+   :caveats ['(prefix? :req/path "ds/raw/")]
+   :next-key "32-bytes-in-the-codec"})
+
+(deftest well-formed-block-has-no-findings
+  (is (= [] (shape/findings good))))
+
+;; Each negative case pins the REASON, not just "non-empty".
+(deftest refusals-name-their-reason
+  (is (= [[:dango/malformed-block :not-a-map]] (shape/findings [1 2])))
+  (is (= [[:dango/malformed-block [:missing [:next-key]]]] (shape/findings (dissoc good :next-key))))
+  (is (= [[:dango/malformed-block [:unknown-keys [:extra]]]] (shape/findings (assoc good :extra 1))))
+  (is (= [[:dango/malformed-block :caps-not-a-non-empty-set-of-kind-resource]]
+         (shape/findings (assoc-in good [:grant :caps] #{}))))
+  (is (= [[:dango/malformed-block :caps-not-a-non-empty-set-of-kind-resource]]
+         (shape/findings (assoc-in good [:grant :caps] #{[:read "x"]}))))
+  (is (= [[:dango/malformed-block :before-not-epoch-seconds]]
+         (shape/findings (assoc-in good [:grant :before] "2026-09-24"))))
+  (is (= [[:dango/malformed-block :caveats-not-a-vector]]
+         (shape/findings (assoc good :caveats '(x))))))

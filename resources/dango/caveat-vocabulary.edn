@@ -1,0 +1,11 @@
+{:format :dango.caveat-vocabulary/v1
+ :decision "adr-2609242100-capability-chain-is-ipld-sexpr-biscuit-is-an-adapter"
+ :operators {and 0 or 0 not 1 = 2 < 2 <= 2 > 2 >= 2 prefix? 2 member? 2}
+ ;; arity 0 = variadic. Nothing else is callable: no recursion, no user
+ ;; functions, no eval, no I/O, no database lookup.
+ :facts #{:req/path :req/bytes :req/now :req/kind :req/resource :req/holder}
+ ;; per-surface facts (storage / graph / inference) are OPEN -- see the ADR gaps.
+ :combination :conjunction-across-blocks
+ :refusals [:dango/cid-mismatch :dango/broken-link :dango/bad-signature :dango/revoked
+            :dango/not-covered :dango/expired :dango/caveat-false :dango/unknown-operator
+            :dango/unknown-fact :dango/malformed-block]}
