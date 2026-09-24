@@ -35,7 +35,7 @@
 ;; - Only the caveat and request cross here. The chain around them (CIDs,
 ;;   links, signatures) is still dango.chain in .cljk.
 (ns dango.caveat-wire
-  (:export [holds-wire])
+  (:export [holds-wire caveat-check caveat-holds])
   (:schemas {:dango/wv [:record :dango/wv [[:tag :i64] [:n :i64] [:off :i64] [:len :i64]]]}))
 
 ;; value tags: 0 unknown, 1 int, 2 str, 3 kw, 4 bool, 5 set (off = the set's
@@ -332,3 +332,18 @@
                     (< b 0) 3
                     (= 1 (tri (term m 0 split))) 1
                     :else 0)))))
+
+;; ── region interface for dango.chain-wire ────────────────────────────────────
+;; A slice cannot cross a module boundary ("two machine words per slice and
+;; its callers spell one"), so another module hands the region's base and
+;; length and a POSITION, and the slice is rebuilt here from parameters.
+
+;; validation of the caveat form at p: budget left (>= 0), -1 malformed,
+;; -2 too large
+(defn caveat-check [base :i64 len :i64 p :i64] :i64
+  (check (slice-of-u8 base len) p 0 max-nodes))
+
+;; the caveat at p holds against the request map at r (1) or not (0); call
+;; only after caveat-check accepted it
+(defn caveat-holds [base :i64 len :i64 p :i64 r :i64] :i64
+  (if (= 1 (tri (term (slice-of-u8 base len) p r))) 1 0))
