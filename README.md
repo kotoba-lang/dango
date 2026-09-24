@@ -45,14 +45,19 @@ its CID. A token is the chain as a CAR. The shape is data:
                           :caveats [[:<= :req/bytes 1000000]]
                           :next-seed agent-seed}))
 
-(chain/verify narrowed {:roots #{issuer-public-key} :revoked #{}
+(chain/verify (chain/present narrowed) {:roots #{issuer-public-key} :revoked #{}
                         :request {:req/kind :data/read :req/resource "kotoba://storage/<did>/ds/raw/a"
                                   :req/now 1700000000 :req/holder "did:key:z6MkAgent"
                                   :req/bytes 4096}})
 ;; => {:dango/allowed? true :dango/reason :granted :dango/cids [...] :dango/effective {...}}
 ```
 
-`chain/encode-token` / `decode-token` move a token as one canonical value.
+The holder keeps `{:blocks :proof}`; a verifier is shown `(chain/present
+token)` = `{:blocks :seal}` — the proof key's signature over the last block's
+bytes, so the proof never leaves the holder (Biscuit's sealed token). Checking
+a seal needs only signature VERIFICATION, which is what lets the native
+verifier do it. `chain/encode-token` / `decode-token` move either as one
+canonical value.
 
 ## Deciding at an edge — in this order, first failure wins
 
@@ -64,7 +69,7 @@ its CID. A token is the chain as a CAR. The shape is data:
 | every signature verifies under the parent's `:next-key`, the root under a trusted root | `:dango/bad-signature` |
 | a holder, once set, is never changed | `:dango/holder-readdressed` |
 | no block CID is revoked | `:dango/revoked` |
-| the proof matches the last `:next-key` (a truncated chain fails here) | `:dango/bad-proof` |
+| the seal verifies under the last `:next-key` (a truncated chain cannot be sealed) | `:dango/bad-seal` |
 | the request names a kind, a resource and a time | `:dango/malformed-request` |
 | `authority.chain/authorize` over the meet of all blocks | `:dango/not-covered` `:dango/expired` `:dango/wrong-holder` |
 | every caveat of every block holds | `:dango/caveat-false` |
@@ -149,13 +154,54 @@ says 4 (this pass stops at the first malformed term); a form nested past
 ~31 caveat levels answers 3 where the oracle says 4 (the CBOR walk's
 nesting bound, 64, is reached before the depth check).
 
-**Not yet:** `wasm32-browser` (Workers) — `unsupported typed Wasm expression`
-on this program, `internal compiler error` on the earlier tree-based one
-(kotoba-lang/amu#1073) — so Workers run the `.cljk`; and the chain verifier
-in Kotoba (CIDs, links, signatures — hash and signature verification to
-arrive as declared capability imports). Until those land, the `.cljk` is the
-oracle, not the Q9 migration, and no consumer cuts over on it.
+**The chain verifier in Kotoba: `src/dango/chain_wire.kotoba`** (2026-09-24).
+`(verify-presentation base len)` over the value.v1 bytes of
+`[presentation roots revoked request]` (revoked entries are 36-byte binary
+CIDs) answers the oracle's reason as a code (1 granted, 10–26 the refusals —
+table in the file). What runs where:
 
-Also not built: sealing (dropping the proof after a final signature), the
-revocation list's home, per-surface fact vocabularies, Authn minting, and the
-one-time edge cutover (adr-2609241800 stays in force until then).
+- **CIDs in the guest** — `src/dango/sha256.kotoba`, FIPS 180-4 over the
+  granted bytes, allocation-free (the state and a 16-word schedule window are
+  parameters; a vector-based first version exhausted the loader's 4,096
+  vectors on three small blocks).
+- **Signatures by capability** — `identity/verify` (wire 2), Ed25519 over
+  spans of the same region named by address; the loader checks every span
+  against its grant table. The native provider is kotoba-lang/amu#1075.
+- **Authority without building the meet** — the scopes that cover one
+  request form a chain, so the meet of all blocks covers it exactly when
+  every block has a cap that covers it; expiry, then holder, then coverage,
+  as `authority.chain/authorize` orders them.
+
+```
+KEXE_LOADER_SOURCE=<amu with #1075>/tools/kexe_loader.c \
+AMU=../amu KBB_ENGINE=../org-babashka-nbb/cli.js kbb --backend sci --classpath "$CP" test/native_chain_parity.cljk            # exit 0: 42/42 agree
+... test/native_chain_parity.cljk --control  # exit 0: without the expiry check, exactly the 2 expired cases disagree
+```
+
+42 real presentations — granted, every refusal the oracle has (16 distinct
+reasons), hand-signed malformed blocks the minting code would refuse, a
+16-block chain and a 17-block one — agree 42/42 on aarch64-macos; the most
+fuel any case used is ~148,000 (the 16-block chain), so an edge sets
+`KEXE_FUEL`. A loader without the wire 2 provider answers exit 2, never a
+pass.
+
+Porting it found three bugs in the oracle, now fixed there with tests: a
+negative `:before` meant "no expiry"; the kind was one `ns.name` segment, so
+`:a.b/c` and `:a/b.c` were one kind; an invalid scope was dropped instead of
+refused. And the token format moved: a verifier is shown a SEAL (the last
+key's signature), never the proof seed, because a verifier that only
+verifies cannot derive a public key from a seed.
+
+Not enforced by the native reader: canonical CBOR (it reads the first match
+of a duplicated key; the oracle refuses). Every such block is signed by the
+key allowed to sign it, so this cannot widen authority, but it is a
+divergence the parity suite does not cover.
+
+**Not yet:** `wasm32-browser` (Workers) — `unsupported typed Wasm expression`
+on the caveat program, `internal compiler error` on the earlier tree-based
+one (kotoba-lang/amu#1073) — so Workers run the `.cljk`. Until that lands
+and amu#1075 merges, the `.cljk` stays the oracle and no consumer cuts over.
+
+Also not built: the revocation list's home, per-surface fact vocabularies,
+Authn minting, and the one-time edge cutover (adr-2609241800 stays in force
+until then).

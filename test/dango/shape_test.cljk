@@ -24,6 +24,8 @@
          (shape/findings (assoc-in good [:grant :caps] #{[:read "x"]}))))
   (is (= [[:dango/malformed-block :before-not-epoch-seconds]]
          (shape/findings (assoc-in good [:grant :before] "2026-09-24"))))
+  (is (= [[:dango/malformed-block :before-not-epoch-seconds]]
+         (shape/findings (assoc-in good [:grant :before] -1))))
   (is (= [[:dango/malformed-block :caveats-not-a-vector]]
          (shape/findings (assoc good :caveats '(x)))))
   (is (= [[:dango/malformed-block :next-key-not-32-bytes]]
