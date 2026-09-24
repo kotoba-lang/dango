@@ -1,0 +1,52 @@
+;; Native parity cases for dango.caveat-eval: the same cases as
+;; test/dango/caveat_test.cljk (the oracle), built as typed trees. `agree i`
+;; is 1 when the native answer for case i equals the oracle's, else 0.
+;;
+;; This is not compiled on its own. test/native_parity.cljk splices these
+;; definitions into a copy of src/dango/caveat_eval.kotoba and exports one
+;; function per case (a0 .. a12), then runs each as its own native process:
+;; - amu's project linker refuses an import whose result is an ADT ("project
+;;   import result type has no closed stub value"), so the cases cannot
+;;   require the evaluator as a module;
+;; - native exports must have qualified boundary types, so only i64 case
+;;   functions are exported, never the tree constructors;
+;; - one instance deciding all 13 cases is refused at compile time ("native
+;;   artifact oracle evaluation rejected", the reason is not reported); each
+;;   case alone passes. Measured 2026-09-24, amu bb73470a.
+(ns dango.caveat-eval-parity
+  (:require [dango.caveat-eval :as c]))
+
+;; request: path "ds/raw/a.parquet", bytes 1000, now 1700000000,
+;; kind "data/read"; holder and resource ABSENT.
+(defn rq [] [:ref :dango/request]
+  (c/request 1 "ds/raw/a.parquet" 1 1000 1 1700000000 1 "data/read" 0 "" 0 ""))
+
+(defn l1 [a [:ref :dango/term]] [:ref :dango/terms] (c/cons-term a (c/nil-terms)))
+(defn l2 [a [:ref :dango/term] b [:ref :dango/term]] [:ref :dango/terms] (c/cons-term a (l1 b)))
+
+;; fact codes: 1 path 2 bytes 3 now 4 kind 5 resource 6 holder
+;; cmp codes: 4 = 5 < 6 <= 7 > 8 >= 9 prefix? 10 member?
+(defn case-of [i :i64] [:ref :dango/term]
+  (cond
+    (= i 0) (c/t-cmp 9 (c/t-fact 1) (c/t-str "ds/raw/"))
+    (= i 1) (c/t-cmp 9 (c/t-fact 1) (c/t-str "ds/cooked/"))
+    (= i 2) (c/t-and (l2 (c/t-cmp 6 (c/t-fact 2) (c/t-int 1000))
+                         (c/t-not (c/t-cmp 4 (c/t-fact 4) (c/t-kw "data/write")))))
+    (= i 3) (c/t-cmp 5 (c/t-fact 2) (c/t-int 1000))
+    (= i 4) (c/t-or (l2 (c/t-cmp 7 (c/t-fact 2) (c/t-int 5000))
+                        (c/t-cmp 10 (c/t-fact 4) (c/t-set (l1 (c/t-kw "data/read"))))))
+    (= i 5) (c/t-cmp 5 (c/t-fact 6) (c/t-int 5))
+    (= i 6) (c/t-cmp 5 (c/t-fact 1) (c/t-int 5))
+    (= i 7) (c/t-not (c/t-cmp 5 (c/t-fact 6) (c/t-int 5)))
+    (= i 8) (c/t-not (c/t-cmp 4 (c/t-fact 6) (c/t-str "did:key:zX")))
+    (= i 9) (c/t-or (l2 (c/t-not (c/t-cmp 5 (c/t-fact 1) (c/t-int 5))) (c/t-bool 0)))
+    (= i 10) (c/t-and (l2 (c/t-bool 1) (c/t-not (c/t-cmp 5 (c/t-fact 6) (c/t-int 5)))))
+    (= i 11) (c/t-or (l2 (c/t-cmp 5 (c/t-fact 6) (c/t-int 5)) (c/t-cmp 4 (c/t-fact 2) (c/t-int 1000))))
+    :else (c/t-not (c/t-cmp 5 (c/t-fact 2) (c/t-int 5)))))
+
+;; the oracle's answers, case by case (dango.caveat/holds? on the wire forms)
+(defn expected [i :i64] :i64
+  (cond (= i 0) 1 (= i 1) 0 (= i 2) 1 (= i 3) 0 (= i 4) 1 (= i 5) 0 (= i 6) 0
+        (= i 7) 0 (= i 8) 0 (= i 9) 0 (= i 10) 0 (= i 11) 1 :else 1))
+
+(defn agree [i :i64] :i64 (if (= (c/holds (case-of i) (rq)) (expected i)) 1 0))

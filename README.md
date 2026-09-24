@@ -115,19 +115,43 @@ checkouts. 55 assertions; each safety check was removed once in a copy and
 the suite went red at the test named for it (proof, three-valued `not`,
 revocation, holder rule, caveats).
 
-**Not yet:** the `.kotoba` build that ADR-2609242100 §9 asks for (amu native
-first, `wasm32-browser` for Workers). Measured 2026-09-24 with
-`amu check --jvm-free` (amu `bb73470a`) on `dango.caveat`, fixing each refusal
-in a copy to reach the next: explicit `(:export …)` required → `kotoba.lang.text`
-resolves from `kotoba-lang/lang/compat`, not `text/src` → no `volatile!`
-(rewritten as a fold here) → map keys must be keywords / integers / strings, so
-the operator table cannot be keyed by symbols → `some` is the option constructor
-→ an untyped map accumulator is refused (`record-get without a type
-descriptor`). What is left is a real port: typed records, and a caveat form as a
-typed recursive value (`:document` is the candidate). The wire form is the
-keyword-headed vector `[:and …]` (owner decision 2026-09-24), not a quoted
-list: nothing in a caveat is code, and keyword keys are what amu admits. Until the port lands this is the oracle, not
-the Q9 migration, and no consumer cuts over on it.
+**The caveat evaluator in Kotoba: `src/dango/caveat_eval.kotoba`** (2026-09-24).
+Same three-valued semantics over a typed tree (`:dango/term`); the `.cljk`
+stays the oracle. Native parity:
+
+```
+AMU=../amu KBB_ENGINE=../org-babashka-nbb/cli.js kbb --backend sci test/native_parity.cljk            # exit 0: 13/13 agree
+AMU=../amu KBB_ENGINE=../org-babashka-nbb/cli.js kbb --backend sci test/native_parity.cljk --control  # exit 0: two-valued not disagrees on exactly 7 8 9 10
+```
+
+Exit 1 = a disagreement (named), exit 2 = could not answer (never a pass).
+Measured on aarch64-macos with amu `bb73470a`; x86_64 not measured.
+
+What the native build could not do, measured the same day — these shape the
+next step, they are not language ceilings:
+
+- **Exports carry no ADT.** Native export boundaries accept i64 / string /
+  scalar records only, so a native host cannot hand the evaluator a tree.
+  The native entry therefore has to take the wire bytes and parse them
+  inside — which needs the `kotoba.value.v1` decoder as a guest module.
+- **No ADT-returning imports across modules** ("project import result type
+  has no closed stub value"): the parity cases are spliced into the module
+  instead of requiring it.
+- **One case per instance.** All 13 cases in one `main` is refused at compile
+  time ("native artifact oracle evaluation rejected", reason not reported);
+  each case alone passes. Trees are also bounded by osaho's ADT node budget
+  (64), well under the wire form's 256-node bound.
+- **`kotoba.lang.text` cannot be linked natively** (it carries a
+  `[:list :string]` function), so `prefix-of?` is written with string
+  builtins.
+- **`wasm32-browser` fails with an internal compiler error** on the same
+  program (kotoba-lang/amu#1073), so Workers still run the `.cljk`.
+
+**Not yet in Kotoba:** parsing the wire form into the tree, and the chain
+verifier (CID, links, signatures — hash and signature verification are to
+arrive as declared capability imports, not in-guest crypto). Until those
+land, the `.cljk` is the oracle, not the Q9 migration, and no consumer cuts
+over on it.
 
 Also not built: sealing (dropping the proof after a final signature), the
 revocation list's home, per-surface fact vocabularies, Authn minting, and the
