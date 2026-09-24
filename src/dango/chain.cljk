@@ -10,7 +10,7 @@
   and checking it is what stops a presenter from dropping the blocks that
   narrowed their authority (a truncated chain has the wrong proof).
 
-  ## Deciding (ADR-2609242100 §3), in this order
+  ## Deciding (adr-2609242100-capability-chain-is-ipld-sexpr-biscuit-is-an-adapter §3), in this order
 
   1. every block decodes canonically and is well-formed; its CID is taken
      from the bytes received, never from a re-encoding;

@@ -115,43 +115,46 @@ checkouts. 55 assertions; each safety check was removed once in a copy and
 the suite went red at the test named for it (proof, three-valued `not`,
 revocation, holder rule, caveats).
 
-**The caveat evaluator in Kotoba: `src/dango/caveat_eval.kotoba`** (2026-09-24).
-Same three-valued semantics over a typed tree (`:dango/term`); the `.cljk`
-stays the oracle. Native parity:
+**The caveat evaluator in Kotoba: `src/dango/caveat_wire.kotoba`** (2026-09-24).
+It decides a caveat straight from its `kotoba.value.v1` bytes: a host grants
+one byte region holding the caveat followed by the request (a value.v1 map of
+`:req/*` facts), and `(holds-wire base len split)` answers 1 holds / 0 does
+not / 3 malformed / 4 too large. Nothing is built — the CBOR is read in place
+— so there is no ADT at the export and no ADT node budget. Same validation
+(vocabulary, arity, depth 16, 256 nodes) and the same three-valued
+evaluation as the `.cljk`, which stays the oracle.
 
 ```
-AMU=../amu KBB_ENGINE=../org-babashka-nbb/cli.js kbb --backend sci test/native_parity.cljk            # exit 0: 13/13 agree
-AMU=../amu KBB_ENGINE=../org-babashka-nbb/cli.js kbb --backend sci test/native_parity.cljk --control  # exit 0: two-valued not disagrees on exactly 7 8 9 10
+CP="src:resources:test:<deps src dirs>"
+AMU=../amu KBB_ENGINE=../org-babashka-nbb/cli.js kbb --backend sci --classpath "$CP" test/native_wire_parity.cljk            # exit 0: 27/27 agree
+AMU=../amu KBB_ENGINE=../org-babashka-nbb/cli.js kbb --backend sci --classpath "$CP" test/native_wire_parity.cljk --control  # exit 0: two-valued not disagrees on exactly the 4 unknown-* cases
 ```
 
-Exit 1 = a disagreement (named), exit 2 = could not answer (never a pass).
-Measured on aarch64-macos with amu `bb73470a`; x86_64 not measured.
+Each case is encoded by the real codec, answered by the oracle, and run as
+its own native process on the same bytes (loader `g:<hex>` / `gl:0`). Exit 1
+= a disagreement (named), exit 2 = could not answer (never a pass). The 27
+cases include refusals (unknown operator / fact, arity, a list, depth 20,
+300 nodes, an int64-wrapped literal). Measured on aarch64-macos with amu
+`386e3d27` and its toolchain at main; x86_64 not measured.
 
-What the native build could not do, measured the same day — these shape the
-next step, they are not language ceilings:
+**Fuel is the caller's budget.** The loader default is 512 function entries
+per run (kotoba-lang `lang/limits.edn` `:profile/native`); a four-fact
+request already needs ~650 and a 300-node caveat ~9,600, so the runner sets
+`KEXE_FUEL` explicitly and prints the most any case used. Running out
+surfaces only as SIGTRAP today (named traps are that ADR's P4).
 
-- **Exports carry no ADT.** Native export boundaries accept i64 / string /
-  scalar records only, so a native host cannot hand the evaluator a tree.
-  The native entry therefore has to take the wire bytes and parse them
-  inside — which needs the `kotoba.value.v1` decoder as a guest module.
-- **No ADT-returning imports across modules** ("project import result type
-  has no closed stub value"): the parity cases are spliced into the module
-  instead of requiring it.
-- **One case per instance.** All 13 cases in one `main` is refused at compile
-  time ("native artifact oracle evaluation rejected", reason not reported);
-  each case alone passes. Trees are also bounded by osaho's ADT node budget
-  (64), well under the wire form's 256-node bound.
-- **`kotoba.lang.text` cannot be linked natively** (it carries a
-  `[:list :string]` function), so `prefix-of?` is written with string
-  builtins.
-- **`wasm32-browser` fails with an internal compiler error** on the same
-  program (kotoba-lang/amu#1073), so Workers still run the `.cljk`.
+Recorded divergences from the oracle, neither of which lets a caveat hold:
+a form both malformed and over the node budget answers 3 where the oracle
+says 4 (this pass stops at the first malformed term); a form nested past
+~31 caveat levels answers 3 where the oracle says 4 (the CBOR walk's
+nesting bound, 64, is reached before the depth check).
 
-**Not yet in Kotoba:** parsing the wire form into the tree, and the chain
-verifier (CID, links, signatures — hash and signature verification are to
-arrive as declared capability imports, not in-guest crypto). Until those
-land, the `.cljk` is the oracle, not the Q9 migration, and no consumer cuts
-over on it.
+**Not yet:** `wasm32-browser` (Workers) — `unsupported typed Wasm expression`
+on this program, `internal compiler error` on the earlier tree-based one
+(kotoba-lang/amu#1073) — so Workers run the `.cljk`; and the chain verifier
+in Kotoba (CIDs, links, signatures — hash and signature verification to
+arrive as declared capability imports). Until those land, the `.cljk` is the
+oracle, not the Q9 migration, and no consumer cuts over on it.
 
 Also not built: sealing (dropping the proof after a final signature), the
 revocation list's home, per-surface fact vocabularies, Authn minting, and the

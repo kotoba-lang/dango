@@ -32,7 +32,8 @@
 
 (def facts
   "The request facts a caveat may name. Per-surface facts are an open
-  question (ADR-2609242100 gaps); adding one is a vocabulary change, not a
+  question (adr-2609242100-capability-chain-is-ipld-sexpr-biscuit-is-an-adapter
+  gaps); adding one is a vocabulary change, not a
   code change, and nothing else may be referenced."
   #{:req/path :req/bytes :req/now :req/kind :req/resource :req/holder})
 
