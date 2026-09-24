@@ -1,5 +1,6 @@
 (ns dango.shape-test
   (:require [cljs.test :refer [deftest is]]
+            [dango.bytes :as b]
             [dango.shape :as shape]))
 
 (def good
@@ -7,7 +8,7 @@
    :grant {:caps #{[:data/read "kotoba://storage/did:key:z6Mk/ds"]}
            :holder "did:key:z6Mk" :before 1790000000}
    :caveats ['(prefix? :req/path "ds/raw/")]
-   :next-key "32-bytes-in-the-codec"})
+   :next-key (b/->bytes (range 32))})
 
 (deftest well-formed-block-has-no-findings
   (is (= [] (shape/findings good))))
@@ -24,4 +25,8 @@
   (is (= [[:dango/malformed-block :before-not-epoch-seconds]]
          (shape/findings (assoc-in good [:grant :before] "2026-09-24"))))
   (is (= [[:dango/malformed-block :caveats-not-a-vector]]
-         (shape/findings (assoc good :caveats '(x))))))
+         (shape/findings (assoc good :caveats '(x)))))
+  (is (= [[:dango/malformed-block :next-key-not-32-bytes]]
+         (shape/findings (assoc good :next-key (b/->bytes (range 31))))))
+  (is (= [[:dango/malformed-block :prev-not-a-link]]
+         (shape/findings (assoc good :prev "bafy…")))))

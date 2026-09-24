@@ -6,5 +6,7 @@
                                      :before {:type :epoch-seconds}}}
         :caveats  {:type :vector-of-predicate}
         :next-key {:type :ed25519-public-key :note "32 bytes"}}
+ :envelope {:blocks "[{:bytes <canonical kotoba.value.v1 block> :sig <64-byte ed25519 by the parent :next-key, the root by a trusted issuer key>} ...]"
+            :proof "32-byte seed of the last block's :next-key; checked, so a truncated chain is refused"}
  :required #{:prev :grant :caveats :next-key}
  :closed true}

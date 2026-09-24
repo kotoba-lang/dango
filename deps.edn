@@ -1,4 +1,10 @@
 {:paths ["src" "resources"]
- ;; No runtime deps yet. kotoba-lang/authority and io-ipld join when the
- ;; verifier lands, each pinned as an explicit floor with the reason beside it.
- :deps {}}
+ ;; Explicit floors: tools.deps takes the NEWEST sha it is shown, so each is
+ ;; pinned here with the reason beside it. All three are at their default
+ ;; branch tips as of 2026-09-24.
+ :deps {;; the lattice: covers? / meet / fold. dango does not re-implement it.
+        io.github.kotoba-lang/authority {:git/sha "28ec4fcba9a375f0d0df166218c8d7c5f7a3ca14"}
+        ;; kotoba.value.v1 codec + CIDv1 dag-cbor + ipld.link
+        io.github.kotoba-lang/io-ipld {:git/sha "908aef0a1bfda84b965735041d54936ce32a80cf"}
+        ;; portable ed25519 (no reader conditionals in the arithmetic)
+        io.github.kotoba-lang/org-ietf-ed25519 {:git/sha "312dec875eb027021b7ad36c600151cd7bb22dc0"}}}
