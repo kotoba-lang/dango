@@ -7,7 +7,7 @@
   {:prev nil
    :grant {:caps #{[:data/read "kotoba://storage/did:key:z6Mk/ds"]}
            :holder "did:key:z6Mk" :before 1790000000}
-   :caveats ['(prefix? :req/path "ds/raw/")]
+   :caveats [[:prefix? :req/path "ds/raw/"]]
    :next-key (b/->bytes (range 32))})
 
 (deftest well-formed-block-has-no-findings

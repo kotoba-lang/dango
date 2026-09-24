@@ -21,10 +21,14 @@
   (:require [kotoba.lang.text :as str]))
 
 (def operators
-  "Operator → arity. `:variadic` takes one or more arguments."
-  {'and :variadic 'or :variadic 'not 1
-   '= 2 '< 2 '<= 2 '> 2 '>= 2
-   'prefix? 2 'member? 2})
+  "Operator → arity. `:variadic` takes one or more arguments. A form is a
+  vector whose head is one of these keywords — `[:and [:<= :req/bytes 10]
+  [:prefix? :req/path \"ds/\"]]` — never a list: nothing here is code, so
+  nothing here can be mistaken for code to evaluate (owner decision
+  2026-09-24; the same family as UCAN 1.0 policy)."
+  {:and :variadic :or :variadic :not 1
+   := 2 :< 2 :<= 2 :> 2 :>= 2
+   :prefix? 2 :member? 2})
 
 (def facts
   "The request facts a caveat may name. Per-surface facts are an open
@@ -51,7 +55,7 @@
     (cond
       (neg? (:budget acc)) acc
       (> depth max-depth) (update acc :out conj [:dango/caveat-too-large [:depth depth]])
-      (seq? x)
+      (vector? x)
       (let [op (first x)
             args (rest x)
             arity (get operators op)]
@@ -84,7 +88,7 @@
 ;; unknown from turning into true: `(not unknown)` is unknown, `and` is false
 ;; if any argument is false, `or` is true if any argument is true, and only a
 ;; final `true` holds. Two-valued logic here was fail-open —
-;; `(not (= :req/kind :data/write))` held when the request carried no kind.
+;; `[:not [:= :req/kind :data/write]]` held when the request carried no kind.
 (def ^:private unknown ::unknown)
 
 (defn- same-kind? [a b]
@@ -95,30 +99,31 @@
 (defn- compare-op [op a b]
   (cond
     (or (= unknown a) (= unknown b)) unknown
-    (= op '=) (if (or (same-kind? a b) (and (keyword? a) (keyword? b))) (= a b) unknown)
-    (#{'< '<= '> '>=} op) (if (and (integer? a) (integer? b))
-                             (case op < (< a b) <= (<= a b) > (> a b) >= (>= a b))
+    (= op :=) (if (or (same-kind? a b) (and (keyword? a) (keyword? b))) (= a b) unknown)
+    (contains? #{:< :<= :> :>=} op) (if (and (integer? a) (integer? b))
+                             (case op :< (< a b) :<= (<= a b) :> (> a b) :>= (>= a b))
                              unknown)
-    (= op 'prefix?) (if (and (string? a) (string? b)) (str/starts-with? a b) unknown)
-    (= op 'member?) (if (set? b) (contains? b a) unknown)))
+    (= op :prefix?) (if (and (string? a) (string? b)) (str/starts-with? a b) unknown)
+    (= op :member?) (if (set? b) (contains? b a) unknown)))
 
 (defn- ev
   "Evaluate a form `problems` already accepted: true, false or `unknown` for
   a predicate, the value for a term."
   [x request]
   (cond
-    (seq? x)
-    (let [[op & args] x]
+    (vector? x)
+    (let [op (first x)
+          args (rest x)]
       (case op
-        and (let [vs (map #(ev % request) args)]
+        :and (let [vs (map #(ev % request) args)]
               (cond (some false? vs) false
                     (every? true? vs) true
                     :else unknown))
-        or (let [vs (map #(ev % request) args)]
+        :or (let [vs (map #(ev % request) args)]
              (cond (some true? vs) true
                    (every? false? vs) false
                    :else unknown))
-        not (let [v (ev (first args) request)]
+        :not (let [v (ev (first args) request)]
               (if (boolean? v) (not v) unknown))
         (compare-op op (ev (first args) request) (ev (second args) request))))
     (fact-ref? x) (if (contains? request x) (get request x) unknown)

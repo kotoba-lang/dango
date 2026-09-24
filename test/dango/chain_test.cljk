@@ -44,7 +44,7 @@
 (def narrowed
   (chain/attenuate token {:grant {:caps #{[:data/read (str ds "/raw/*")]}
                                   :holder "did:key:z6MkAgent" :before 1750000000}
-                          :caveats ['(<= :req/bytes 100)]
+                          :caveats [[:<= :req/bytes 100]]
                           :next-seed (seed 3)}))
 
 (deftest attenuation-only-narrows
@@ -101,7 +101,7 @@
   (is (= :dango/malformed-request (reason (decide token (req :req/resource "not a resource")))))
   (is (thrown? :default
                (chain/attenuate token {:grant {:caps #{[:data/read ds]}}
-                                       :caveats ['(eval "x")] :next-seed (seed 6)}))))
+                                       :caveats [[:eval "x"]] :next-seed (seed 6)}))))
 
 (deftest token-round-trips-through-the-codec
   (let [bs (chain/encode-token narrowed)

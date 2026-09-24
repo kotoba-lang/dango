@@ -1,6 +1,7 @@
 {:format :dango.caveat-vocabulary/v1
  :decision "adr-2609242100-capability-chain-is-ipld-sexpr-biscuit-is-an-adapter"
- :operators {and 0 or 0 not 1 = 2 < 2 <= 2 > 2 >= 2 prefix? 2 member? 2}
+ :form "a vector whose head is an operator keyword: [:and [:<= :req/bytes 10] [:prefix? :req/path \"ds/\"]] -- never a list"
+ :operators {:and 0 :or 0 :not 1 := 2 :< 2 :<= 2 :> 2 :>= 2 :prefix? 2 :member? 2}
  ;; arity 0 = variadic. Nothing else is callable: no recursion, no user
  ;; functions, no eval, no I/O, no database lookup.
  :facts #{:req/path :req/bytes :req/now :req/kind :req/resource :req/holder}

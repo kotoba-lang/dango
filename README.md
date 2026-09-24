@@ -19,7 +19,7 @@ Decision: com-junkawasaki/root
  :grant    {:caps   #{[:data/read "kotoba://storage/<tenant-did>/ds"]}
             :holder "did:key:z6Mk…"
             :before 1790000000}
- :caveats  [(and (<= :req/bytes 1000000) (prefix? :req/path "ds/raw/"))]
+ :caveats  [[:and [:<= :req/bytes 1000000] [:prefix? :req/path "ds/raw/"]]]
  :next-key <ed25519 public key>}          ; the key that may sign the next block
 ;; + a signature over the block's dag-cbor bytes by the parent's :next-key
 ```
@@ -42,7 +42,7 @@ its CID. A token is the chain as a CAR. The shape is data:
 (def narrowed                                ; the bearer narrows it, offline
   (chain/attenuate token {:grant {:caps #{[:data/read "kotoba://storage/<did>/ds/raw/*"]}
                                   :holder "did:key:z6MkAgent" :before 1750000000}
-                          :caveats ['(<= :req/bytes 1000000)]
+                          :caveats [[:<= :req/bytes 1000000]]
                           :next-seed agent-seed}))
 
 (chain/verify narrowed {:roots #{issuer-public-key} :revoked #{}
@@ -72,11 +72,13 @@ its CID. A token is the chain as a CAR. The shape is data:
 A block's CID is computed from the bytes received, never from a re-encoding,
 so there is no "CID mismatch": tampering is a `:bad-signature`.
 
-Caveats (`dango.caveat`) are a closed, total, **three-valued** predicate
+Caveats (`dango.caveat`) are keyword-headed vectors —
+`[:and [:<= :req/bytes 10] [:prefix? :req/path "ds/"]]` — never lists, and a
+closed, total, **three-valued** predicate
 language: a fact the request does not carry, or operands of different types,
 make a comparison *unknown*, and `not` / `and` / `or` keep unknown unknown
 (Kleene). Only a final `true` holds. Two-valued logic here would be fail-open:
-`(not (= :req/kind :data/write))` would hold for a request with no kind.
+`[:not [:= :req/kind :data/write]]` would hold for a request with no kind.
 
 Capabilities become authority scopes with the kind as the first segment —
 `[:data/read "kotoba://storage/<did>/ds"]` → `["data.read" "kotoba" "storage"
@@ -122,9 +124,9 @@ resolves from `kotoba-lang/lang/compat`, not `text/src` → no `volatile!`
 the operator table cannot be keyed by symbols → `some` is the option constructor
 → an untyped map accumulator is refused (`record-get without a type
 descriptor`). What is left is a real port: typed records, and a caveat form as a
-typed recursive value (`:document` is the candidate) — which also decides
-whether the wire form stays a quoted list `(and …)` or becomes keyword-headed
-`[:and …]`. That choice is open. Until the port lands this is the oracle, not
+typed recursive value (`:document` is the candidate). The wire form is the
+keyword-headed vector `[:and …]` (owner decision 2026-09-24), not a quoted
+list: nothing in a caveat is code, and keyword keys are what amu admits. Until the port lands this is the oracle, not
 the Q9 migration, and no consumer cuts over on it.
 
 Also not built: sealing (dropping the proof after a final signature), the
