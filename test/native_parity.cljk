@@ -1,0 +1,114 @@
+;; kbb --backend sci test/native_parity.cljk [--control]
+;;
+;; Native parity for the Kotoba caveat evaluator: splices
+;; test/dango/caveat_eval_parity.kotoba into a copy of
+;; src/dango/caveat_eval.kotoba, exports one i64 function per case (why one
+;; per case: the fixture's header), compiles it with
+;; `amu compile --jvm-free --target <host native>`, and runs every case as
+;; its own process through amu's tools/kexe_loader.c.
+;;
+;; Exit 0 -- every case agreed with the oracle (prints SCANNED<TAB>13).
+;; Exit 1 -- at least one case disagreed; the disagreeing cases are named.
+;; Exit 2 -- could not answer: amu / the engine / cc missing, the compile
+;;           refused, or a case printed something other than 0 or 1. Never
+;;           read as a pass.
+;;
+;; --control compiles the evaluator with two-valued `not` (the fail-open this
+;; suite exists for) and exits 0 only if EXACTLY cases 7 8 9 10 disagree --
+;; the proof that the check can go red, and goes red for the named reason.
+;;
+;; AMU (default ../amu) and KBB_ENGINE (default ../org-babashka-nbb/cli.js)
+;; name the west siblings.
+(ns native-parity
+  (:require [clojure.string :as s]))
+
+(def cp (js/require "child_process"))
+(def fs (js/require "fs"))
+(def os (js/require "os"))
+(def path (js/require "path"))
+
+(def here (.cwd js/process))
+(def amu-root (or (.. js/process -env -AMU) (.resolve path here "../amu")))
+(def engine (or (.. js/process -env -KBB_ENGINE)
+                (.resolve path here "../org-babashka-nbb/cli.js")))
+(def control? (some #{"--control"} *command-line-args*))
+(def cases 13)
+(def control-expect #{7 8 9 10})
+
+(defn- cannot [msg]
+  (println "CANNOT-ANSWER" msg)
+  (set! (.-exitCode js/process) 2)
+  (throw (ex-info msg {:exit 2})))
+
+(defn- run [cmd args]
+  (let [r (.spawnSync cp cmd (clj->js args)
+                      #js {:encoding "utf8"
+                           :env (js/Object.assign #js {} (.-env js/process) #js {:KBB_ENGINE engine})})]
+    {:exit (.-status r) :out (str (.-stdout r)) :err (str (.-stderr r))}))
+
+(defn- target []
+  (case [(.platform os) (.arch os)]
+    ["darwin" "arm64"] ["aarch64-macos" "aarch64"]
+    ["linux" "arm64"] ["aarch64-linux" "aarch64"]
+    ["linux" "x64"] ["x86_64-linux" "x86_64"]
+    ["darwin" "x64"] ["x86_64-macos" "x86_64"]
+    (cannot (str "no native target for " (.platform os) "/" (.arch os)))))
+
+(defn- splice [src fixture]
+  (let [exports (s/join " " (map #(str "a" %) (range cases)))
+        src (s/replace-first src #"\(:export \[[^\]]*\]\)" (str "(:export [" exports "])"))
+        src (if control?
+              (s/replace src "(= r 1) 0 :else 2))" "(= r 1) 0 :else 1))")
+              src)
+        body (s/replace (subs fixture (s/index-of fixture "(defn rq")) "c/" "")
+        tail (s/join "\n" (map #(str "(defn a" % " [] :i64 (agree " % "))") (range cases)))]
+    (when (and control? (not (s/includes? src ":else 1))")))
+      (cannot "control mutation did not apply: not3 changed shape"))
+    (str src "\n" body "\n" tail "\n")))
+
+(defn main []
+  (doseq [[what p] [["amu" (.join path amu-root "bin/amu")] ["engine" engine]
+                    ["loader source" (.join path amu-root "tools/kexe_loader.c")]]]
+    (when-not (.existsSync fs p) (cannot (str what " not found at " p))))
+  (let [[tgt isa] (target)
+        dir (.mkdtempSync fs (.join path (.tmpdir os) "dango-native-"))
+        src-file (.join path dir "parity.kotoba")
+        kexe (.join path dir "parity.kexe")
+        loader (.join path dir "kexe_loader")
+        amu (.join path amu-root "bin/amu")]
+    (.writeFileSync fs src-file
+                    (splice (str (.readFileSync fs "src/dango/caveat_eval.kotoba"))
+                            (str (.readFileSync fs "test/dango/caveat_eval_parity.kotoba"))))
+    (let [c (run amu ["compile" src-file "--jvm-free" "--target" tgt "--output" kexe])]
+      (when-not (and (zero? (:exit c)) (.existsSync fs kexe))
+        (cannot (str "compile refused (exit " (:exit c) "): " (subs (str (:out c) (:err c)) 0 400)))))
+    (let [l (run "cc" ["-O2" "-o" loader (.join path amu-root "tools/kexe_loader.c")])]
+      (when-not (zero? (:exit l)) (cannot (str "cc failed: " (:err l)))))
+    (let [answers (vec (for [i (range cases)]
+                         (let [bin (.join path dir (str "a" i ".bin"))
+                               x (run amu ["extract-native" kexe "--symbol" (str "a" i) "--output" bin])
+                               off (second (re-find #":offset (\d+)" (:out x)))
+                               _ (when-not off (cannot (str "extract-native a" i ": " (:out x) (:err x))))
+                               r (run loader [bin off "0" isa "-"])
+                               v (s/trim (last (s/split-lines (str (:out r) "\n"))))]
+                           (when-not (#{"0" "1"} v)
+                             (cannot (str "case " i " printed " (pr-str v) " " (:err r))))
+                           v)))
+          disagree (set (keep-indexed (fn [i v] (when (= "0" v) i)) answers))]
+      (println (str "SCANNED\t" (count answers)))
+      (println "target" tgt "answers" (s/join "" answers))
+      (if control?
+        (if (= disagree control-expect)
+          (println "CONTROL OK: two-valued not disagrees on exactly" (sort disagree))
+          (do (println "CONTROL FAILED: expected" (sort control-expect) "got" (sort disagree))
+              (set! (.-exitCode js/process) 1)))
+        (if (empty? disagree)
+          (println "PARITY OK: all" cases "cases agree with the oracle")
+          (do (println "PARITY FAILED on cases" (sort disagree))
+              (set! (.-exitCode js/process) 1)))))))
+
+(try (main)
+     (catch :default e
+       (when-not (= 2 (:exit (ex-data e)))
+         (println "CANNOT-ANSWER" (ex-message e))
+         (set! (.-exitCode js/process) 2))))
