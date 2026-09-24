@@ -1,0 +1,6 @@
+;; Declared HERE and not only in deps.edn: nbb reads nbb.edn and does NOT read
+;; deps.edn. sha and :paths are COPIED from deps.edn.
+{:paths ["src" "resources"]
+ :deps {io.github.kotoba-lang/authority {:git/sha "28ec4fcba9a375f0d0df166218c8d7c5f7a3ca14"}
+        io.github.kotoba-lang/io-ipld {:git/sha "908aef0a1bfda84b965735041d54936ce32a80cf"}
+        io.github.kotoba-lang/org-ietf-ed25519 {:git/sha "312dec875eb027021b7ad36c600151cd7bb22dc0"}}}
