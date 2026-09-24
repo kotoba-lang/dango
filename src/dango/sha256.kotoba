@@ -1,0 +1,198 @@
+;; dango.sha256 -- FIPS 180-4 SHA-256 over bytes held in a granted region,
+;; in the Kotoba guest subset (ADR adr-2609242100-capability-chain-is-ipld-
+;; sexpr-biscuit-is-an-adapter, staged plan: the CID half of the chain check
+;; runs in the guest; only signature verification is a capability).
+;;
+;; Words are 32-bit values held in i64 and masked after every addition. The
+;; message is read from a slice and padded VIRTUALLY (`vbyte`), so no copy of
+;; it is made and no :bytes value is needed -- which matters, because a guest
+;; cannot build a :bytes or :string from region bytes (guest-grammar :bytes:
+;; "binary payloads otherwise enter through typed host/provider boundaries").
+;; Shift counts are literals (a guest rule), so every rotation is written out,
+;; as in kotoba-lang/org-nist-sha2's SHA-512.
+(ns dango.sha256
+  (:export [digest-matches]))
+
+(def mask32 4294967295)
+
+(defn at [m [:slice :u8] p :i64] :i64
+  (if (and (>= p 0) (< p (slice-length m))) (slice-get m p) -1))
+
+(defn k-table [] :vector-i64
+  (let [v0 (vector-alloc 64)
+        v1 (vector-assoc v0 0 1116352408)
+        v2 (vector-assoc v1 1 1899447441)
+        v3 (vector-assoc v2 2 3049323471)
+        v4 (vector-assoc v3 3 3921009573)
+        v5 (vector-assoc v4 4 961987163)
+        v6 (vector-assoc v5 5 1508970993)
+        v7 (vector-assoc v6 6 2453635748)
+        v8 (vector-assoc v7 7 2870763221)
+        v9 (vector-assoc v8 8 3624381080)
+        v10 (vector-assoc v9 9 310598401)
+        v11 (vector-assoc v10 10 607225278)
+        v12 (vector-assoc v11 11 1426881987)
+        v13 (vector-assoc v12 12 1925078388)
+        v14 (vector-assoc v13 13 2162078206)
+        v15 (vector-assoc v14 14 2614888103)
+        v16 (vector-assoc v15 15 3248222580)
+        v17 (vector-assoc v16 16 3835390401)
+        v18 (vector-assoc v17 17 4022224774)
+        v19 (vector-assoc v18 18 264347078)
+        v20 (vector-assoc v19 19 604807628)
+        v21 (vector-assoc v20 20 770255983)
+        v22 (vector-assoc v21 21 1249150122)
+        v23 (vector-assoc v22 22 1555081692)
+        v24 (vector-assoc v23 23 1996064986)
+        v25 (vector-assoc v24 24 2554220882)
+        v26 (vector-assoc v25 25 2821834349)
+        v27 (vector-assoc v26 26 2952996808)
+        v28 (vector-assoc v27 27 3210313671)
+        v29 (vector-assoc v28 28 3336571891)
+        v30 (vector-assoc v29 29 3584528711)
+        v31 (vector-assoc v30 30 113926993)
+        v32 (vector-assoc v31 31 338241895)
+        v33 (vector-assoc v32 32 666307205)
+        v34 (vector-assoc v33 33 773529912)
+        v35 (vector-assoc v34 34 1294757372)
+        v36 (vector-assoc v35 35 1396182291)
+        v37 (vector-assoc v36 36 1695183700)
+        v38 (vector-assoc v37 37 1986661051)
+        v39 (vector-assoc v38 38 2177026350)
+        v40 (vector-assoc v39 39 2456956037)
+        v41 (vector-assoc v40 40 2730485921)
+        v42 (vector-assoc v41 41 2820302411)
+        v43 (vector-assoc v42 42 3259730800)
+        v44 (vector-assoc v43 43 3345764771)
+        v45 (vector-assoc v44 44 3516065817)
+        v46 (vector-assoc v45 45 3600352804)
+        v47 (vector-assoc v46 46 4094571909)
+        v48 (vector-assoc v47 47 275423344)
+        v49 (vector-assoc v48 48 430227734)
+        v50 (vector-assoc v49 49 506948616)
+        v51 (vector-assoc v50 50 659060556)
+        v52 (vector-assoc v51 51 883997877)
+        v53 (vector-assoc v52 52 958139571)
+        v54 (vector-assoc v53 53 1322822218)
+        v55 (vector-assoc v54 54 1537002063)
+        v56 (vector-assoc v55 55 1747873779)
+        v57 (vector-assoc v56 56 1955562222)
+        v58 (vector-assoc v57 57 2024104815)
+        v59 (vector-assoc v58 58 2227730452)
+        v60 (vector-assoc v59 59 2361852424)
+        v61 (vector-assoc v60 60 2428436474)
+        v62 (vector-assoc v61 61 2756734187)
+        v63 (vector-assoc v62 62 3204031479)
+        v64 (vector-assoc v63 63 3329325298)]
+    v64))
+
+(defn h-table [] :vector-i64
+  (let [v0 (vector-alloc 8)
+        v1 (vector-assoc v0 0 1779033703)
+        v2 (vector-assoc v1 1 3144134277)
+        v3 (vector-assoc v2 2 1013904242)
+        v4 (vector-assoc v3 3 2773480762)
+        v5 (vector-assoc v4 4 1359893119)
+        v6 (vector-assoc v5 5 2600822924)
+        v7 (vector-assoc v6 6 528734635)
+        v8 (vector-assoc v7 7 1541459225)]
+    v8))
+
+(defn rotr2 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 2) (i64-shift-left x 30)) mask32))
+(defn rotr6 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 6) (i64-shift-left x 26)) mask32))
+(defn rotr7 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 7) (i64-shift-left x 25)) mask32))
+(defn rotr11 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 11) (i64-shift-left x 21)) mask32))
+(defn rotr13 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 13) (i64-shift-left x 19)) mask32))
+(defn rotr17 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 17) (i64-shift-left x 15)) mask32))
+(defn rotr18 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 18) (i64-shift-left x 14)) mask32))
+(defn rotr19 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 19) (i64-shift-left x 13)) mask32))
+(defn rotr22 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 22) (i64-shift-left x 10)) mask32))
+(defn rotr25 [x :i64] :i64 (bit-and (bit-or (u64-shift-right x 25) (i64-shift-left x 7)) mask32))
+
+(defn big-s0 [x :i64] :i64 (bit-xor (rotr2 x) (bit-xor (rotr13 x) (rotr22 x))))
+(defn big-s1 [x :i64] :i64 (bit-xor (rotr6 x) (bit-xor (rotr11 x) (rotr25 x))))
+(defn small-s0 [x :i64] :i64 (bit-xor (rotr7 x) (bit-xor (rotr18 x) (u64-shift-right x 3))))
+(defn small-s1 [x :i64] :i64 (bit-xor (rotr17 x) (bit-xor (rotr19 x) (u64-shift-right x 10))))
+(defn ch [x :i64 y :i64 z :i64] :i64 (bit-and (bit-xor (bit-and x y) (bit-and (bit-xor x mask32) z)) mask32))
+(defn maj [x :i64 y :i64 z :i64] :i64 (bit-xor (bit-and x y) (bit-xor (bit-and x z) (bit-and y z))))
+(defn add32 [a :i64 b :i64] :i64 (bit-and (+ a b) mask32))
+
+;; the padded message's total length in bytes: len + 0x80 + 8-byte length,
+;; rounded up to a whole 64-byte block
+(defn padded-length [len :i64] :i64 (* 64 (quot (+ len 72) 64)))
+
+(defn pow256 [k :i64 acc :i64] :i64 (if (= k 0) acc (pow256 (- k 1) (* acc 256))))
+
+;; byte i of the PADDED message [off, off+len) without building it
+(defn vbyte [m [:slice :u8] off :i64 len :i64 i :i64] :i64
+  (let [total (padded-length len)]
+    (cond
+      (< i len) (at m (+ off i))
+      (= i len) 128
+      (>= i (- total 8))
+      ;; byte k of the 64-bit big-endian bit length; 256^k stays below 2^63
+      ;; for k <= 7, 256^(k+1) would not -- so the remainder is taken from the
+      ;; same quotient rather than from a second, larger power
+      (let [k (- (- total 1) i) q (quot (* len 8) (pow256 k 1))]
+        (- q (* 256 (quot q 256))))
+      :else 0)))
+
+(defn word [m [:slice :u8] off :i64 len :i64 i :i64] :i64
+  (+ (* 16777216 (vbyte m off len i))
+     (+ (* 65536 (vbyte m off len (+ i 1)))
+        (+ (* 256 (vbyte m off len (+ i 2))) (vbyte m off len (+ i 3))))))
+
+(defn schedule-16 [m [:slice :u8] off :i64 len :i64 base :i64 w :vector-i64 t :i64] :vector-i64
+  (if (= t 16) w (schedule-16 m off len base (vector-assoc w t (word m off len (+ base (* 4 t)))) (+ t 1))))
+
+(defn schedule-64 [w :vector-i64 t :i64] :vector-i64
+  (if (= t 64)
+    w
+    (schedule-64 (vector-assoc w t (add32 (add32 (small-s1 (vector-at w (- t 2))) (vector-at w (- t 7)))
+                                          (add32 (small-s0 (vector-at w (- t 15))) (vector-at w (- t 16)))))
+                 (+ t 1))))
+
+(defn rounds [st :vector-i64 w :vector-i64 kt :vector-i64 t :i64] :vector-i64
+  (if (= t 64)
+    st
+    (let [a (vector-at st 0) b (vector-at st 1) c (vector-at st 2) d (vector-at st 3)
+          e (vector-at st 4) f (vector-at st 5) g (vector-at st 6) h (vector-at st 7)
+          t1 (add32 (add32 h (big-s1 e)) (add32 (ch e f g) (add32 (vector-at kt t) (vector-at w t))))
+          t2 (add32 (big-s0 a) (maj a b c))
+          s0 (vector-assoc st 7 g) s1 (vector-assoc s0 6 f) s2 (vector-assoc s1 5 e)
+          s3 (vector-assoc s2 4 (add32 d t1)) s4 (vector-assoc s3 3 c) s5 (vector-assoc s4 2 b)
+          s6 (vector-assoc s5 1 a) s7 (vector-assoc s6 0 (add32 t1 t2))]
+      (rounds s7 w kt (+ t 1)))))
+
+(defn add-state [h :vector-i64 st :vector-i64 t :i64] :vector-i64
+  (if (= t 8) h (add-state (vector-assoc h t (add32 (vector-at h t) (vector-at st t))) st (+ t 1))))
+
+(defn copy8 [src :vector-i64 dst :vector-i64 t :i64] :vector-i64
+  (if (= t 8) dst (copy8 src (vector-assoc dst t (vector-at src t)) (+ t 1))))
+
+(defn blocks [m [:slice :u8] off :i64 len :i64 h :vector-i64 kt :vector-i64 base :i64] :vector-i64
+  (if (>= base (padded-length len))
+    h
+    (let [w (schedule-64 (schedule-16 m off len base (vector-alloc 64) 0) 16)
+          st (rounds (copy8 h (vector-alloc 8) 0) w kt 0)]
+      (blocks m off len (add-state h st 0) kt (+ base 64)))))
+
+;; SHA-256 of region bytes [off, off+len): eight 32-bit words
+(defn sha256 [m [:slice :u8] off :i64 len :i64] :vector-i64
+  (blocks m off len (h-table) (k-table) 0))
+
+;; the 32 bytes at p equal digest h
+(defn digest-eq [m [:slice :u8] p :i64 h :vector-i64 t :i64] :i64
+  (cond (= t 8) 1
+        (= (vector-at h t) (+ (* 16777216 (at m (+ p (* 4 t))))
+                               (+ (* 65536 (at m (+ p (+ 1 (* 4 t)))))
+                                  (+ (* 256 (at m (+ p (+ 2 (* 4 t))))) (at m (+ p (+ 3 (* 4 t))))))))
+        (digest-eq m p h (+ t 1))
+        :else 0))
+
+;; test entry: region = message ++ 32-byte expected digest; 1 when they match
+(defn digest-matches [base :i64 len :i64 split :i64] :i64
+  (let [m (slice-of-u8 base len)]
+    (if (= (- len split) 32)
+      (digest-eq m split (sha256 m 0 split) 0)
+      3)))
