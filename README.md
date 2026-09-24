@@ -45,14 +45,19 @@ its CID. A token is the chain as a CAR. The shape is data:
                           :caveats [[:<= :req/bytes 1000000]]
                           :next-seed agent-seed}))
 
-(chain/verify narrowed {:roots #{issuer-public-key} :revoked #{}
+(chain/verify (chain/present narrowed) {:roots #{issuer-public-key} :revoked #{}
                         :request {:req/kind :data/read :req/resource "kotoba://storage/<did>/ds/raw/a"
                                   :req/now 1700000000 :req/holder "did:key:z6MkAgent"
                                   :req/bytes 4096}})
 ;; => {:dango/allowed? true :dango/reason :granted :dango/cids [...] :dango/effective {...}}
 ```
 
-`chain/encode-token` / `decode-token` move a token as one canonical value.
+The holder keeps `{:blocks :proof}`; a verifier is shown `(chain/present
+token)` = `{:blocks :seal}` — the proof key's signature over the last block's
+bytes, so the proof never leaves the holder (Biscuit's sealed token). Checking
+a seal needs only signature VERIFICATION, which is what lets the native
+verifier do it. `chain/encode-token` / `decode-token` move either as one
+canonical value.
 
 ## Deciding at an edge — in this order, first failure wins
 
@@ -64,7 +69,7 @@ its CID. A token is the chain as a CAR. The shape is data:
 | every signature verifies under the parent's `:next-key`, the root under a trusted root | `:dango/bad-signature` |
 | a holder, once set, is never changed | `:dango/holder-readdressed` |
 | no block CID is revoked | `:dango/revoked` |
-| the proof matches the last `:next-key` (a truncated chain fails here) | `:dango/bad-proof` |
+| the seal verifies under the last `:next-key` (a truncated chain cannot be sealed) | `:dango/bad-seal` |
 | the request names a kind, a resource and a time | `:dango/malformed-request` |
 | `authority.chain/authorize` over the meet of all blocks | `:dango/not-covered` `:dango/expired` `:dango/wrong-holder` |
 | every caveat of every block holds | `:dango/caveat-false` |

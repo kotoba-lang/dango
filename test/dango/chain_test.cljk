@@ -25,7 +25,7 @@
 
 (defn- decide
   ([t] (decide t (req)))
-  ([t r] (chain/verify t {:roots roots :request r})))
+  ([t r] (chain/verify (chain/present t) {:roots roots :request r})))
 
 (defn- reason [d] (:dango/reason d))
 
@@ -74,25 +74,64 @@
 (deftest authentication-refusals
   (testing "an untrusted root"
     (is (= :dango/bad-signature
-           (reason (chain/verify token {:roots #{(ed/public-key (seed 9))} :request (req)})))))
+           (reason (chain/verify (chain/present token) {:roots #{(ed/public-key (seed 9))} :request (req)})))))
   (testing "a tampered block"
     (let [blk (codec/decode-value (:bytes (first (:blocks token))))
           forged (codec/encode-value (assoc-in blk [:grant :before] 1900000000))]
       (is (= :dango/bad-signature
              (reason (decide (assoc-in token [:blocks 0 :bytes] forged)))))))
-  (testing "a dropped block: the proof no longer matches"
-    (is (= :dango/bad-proof
+  (testing "a dropped block: the holder cannot seal the shorter chain"
+    (is (= :dango/bad-seal
            (reason (decide (assoc narrowed :blocks [(first (:blocks narrowed))]))))))
   (testing "blocks swapped: the link breaks"
     (is (= :dango/broken-link
            (reason (decide (update narrowed :blocks (comp vec reverse))))))
   (testing "no blocks"
-    (is (= :dango/empty-chain (reason (decide {:blocks [] :proof (b/->bytes (seed 2))})))))
+    (is (= :dango/empty-chain
+           (reason (chain/verify {:blocks [] :seal (b/->bytes (repeat 64 0))} {:roots roots :request (req)})))))
   (testing "revoked by CID"
     (let [cid (first (:dango/cids (decide token)))]
       (is (string? cid))
       (is (= :dango/revoked
-             (reason (chain/verify token {:roots roots :revoked #{cid} :request (req)}))))))))
+             (reason (chain/verify (chain/present token) {:roots roots :revoked #{cid} :request (req)}))))))))
+
+(deftest the-seal-is-what-a-verifier-checks
+  (let [p (chain/present narrowed)]
+    (is (not (contains? p :proof)) "the proof never leaves the holder")
+    (is (= 64 (b/size (:seal p)))))
+  (testing "a seal by the wrong key"
+    (is (= :dango/bad-seal
+           (reason (chain/verify (chain/present (assoc narrowed :proof (b/->bytes (seed 7))))
+                                 {:roots roots :request (req :req/holder "did:key:z6MkAgent")})))))
+  (testing "a seal over a different block"
+    (let [p (chain/present narrowed)
+          other (chain/present token)]
+      (is (= :dango/bad-seal
+             (reason (chain/verify (assoc p :seal (:seal other))
+                                   {:roots roots :request (req :req/holder "did:key:z6MkAgent")}))))))
+  (testing "no seal at all"
+    (is (= :dango/bad-seal
+           (reason (chain/verify (dissoc (chain/present token) :seal) {:roots roots :request (req)}))))))
+
+(deftest before-must-be-an-epoch-second-in-range
+  ;; a negative :before used to become "no expiry"
+  (is (thrown? :default (chain/root {:issuer-seed issuer :grant {:caps #{[:data/read ds]} :before -1}
+                                     :caveats [] :next-seed (seed 2)})))
+  (is (thrown? :default (chain/root {:issuer-seed issuer :grant {:caps #{[:data/read ds]} :before 1000000000000}
+                                     :caveats [] :next-seed (seed 2)})))
+  (is (= :granted (reason (decide (chain/root {:issuer-seed issuer
+                                               :grant {:caps #{[:data/read (str ds "/*")]} :before 999999999999}
+                                               :caveats [] :next-seed (seed 2)}))))))
+
+(deftest kinds-do-not-collide
+  ;; :a.b/c and :a/b.c were one kind when the kind was one "ns.name" segment
+  (let [t (chain/root {:issuer-seed issuer :grant {:caps #{[:a.b/c (str ds "/*")]} :before 1800000000}
+                       :caveats [] :next-seed (seed 2)})]
+    (is (= :granted (reason (decide t (req :req/kind :a.b/c)))))
+    (is (= :dango/not-covered (reason (decide t (req :req/kind :a/b.c))))))
+  (testing "a kind that makes no valid scope is refused, not dropped"
+    (is (thrown? :default (chain/root {:issuer-seed issuer :grant {:caps #{[:data/* ds]}}
+                                       :caveats [] :next-seed (seed 2)})))))
 
 (deftest malformed-inputs-name-their-reason
   (is (= :dango/malformed-block
