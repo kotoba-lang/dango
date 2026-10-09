@@ -151,7 +151,7 @@
 
 (defn- check-blocks
   "Stages 1–3. Returns {:blocks [...] :cids [...]} or a refusal."
-  [{:keys [blocks seal]} {:keys [roots revoked]}]
+  [{:keys [blocks seal]} {:keys [roots revoked root-verifier]}]
   (cond
     (not (and (vector? blocks) (seq blocks))) (refusal :dango/empty-chain nil nil)
     (> (count blocks) max-blocks) (refusal :dango/chain-too-long nil (count blocks))
@@ -180,7 +180,15 @@
             (refusal :dango/broken-link i nil)
             (not (and (b/bytes? (:sig env))
                       (if (zero? i)
-                        (boolean (some #(ed/verify % (:bytes env) (:sig env)) roots))
+                        (if root-verifier
+                          ;; Trusted host adapter, never a field in the presentation.
+                          ;; Only literal true qualifies: an unresolved Promise cannot
+                          ;; become authority. The adapter binds the exact CID/bytes to
+                          ;; a user-root signature already checked against current chain
+                          ;; state. All later links, attenuation and seals remain local.
+                          (try (true? (root-verifier {:bytes (:bytes env) :cid cid :signature (:sig env)}))
+                               (catch #?(:clj Exception :cljs :default) _ false))
+                          (boolean (some #(ed/verify % (:bytes env) (:sig env)) roots)))
                         (ed/verify signer (:bytes env) (:sig env)))))
             (refusal :dango/bad-signature i nil)
             (and holder h (not= holder h)) (refusal :dango/holder-readdressed i h)
@@ -198,6 +206,10 @@
   "Decide REQUEST against a PRESENTATION (`present`).
 
   OPTS: `:roots` — the trusted root public keys (32-int vectors);
+  alternatively `:root-verifier` — a trusted host function of exact root bytes,
+  CID and signature returning literal true only after user-root verification.
+  Never resolve this adapter from client input; asynchronous verification must
+  finish before calling verify. With an adapter present, legacy roots are ignored.
   `:revoked` — revoked block CIDs; `:request` — a map of `dango.caveat/facts`
   keys, of which `:req/kind`, `:req/resource` and `:req/now` are required.
 
