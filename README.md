@@ -61,6 +61,19 @@ canonical value.
 
 ## Deciding at an edge — in this order, first failure wins
 
+### External user roots in the CLJK host
+
+`chain/verify` also accepts `:root-verifier`, a trusted host function receiving
+`{:bytes canonical-root-bytes :cid computed-root-cid :signature root-signature}`.
+Only literal `true` accepts the root. Resolve asynchronous wallet verification
+against current chain state first, then bind the adapter to those exact bytes,
+CID and signature. Never load the function or its verdict from a presentation.
+With the adapter present, legacy `:roots` cannot override a refusal. All other
+chain, seal, revocation, attenuation and caveat checks still run locally.
+
+This is a CLJK host extension. The native `.kotoba` verifier continues to use
+Ed25519 roots; it does not implement Ethereum RPC or wallet verification.
+
 | stage | refused as |
 |---|---|
 | every block decodes canonically and is well-formed (caveats included) | `:dango/malformed-block` `:dango/malformed-caveat` `:dango/unknown-operator` `:dango/unknown-fact` `:dango/caveat-too-large` |

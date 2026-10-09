@@ -29,6 +29,25 @@
 
 (defn- reason [d] (:dango/reason d))
 
+(deftest external-root-adapter-binds-exact-root-and-keeps-chain-checks
+  (let [p (chain/present token)
+        expected (:bytes (first (:blocks p)))
+        adapter (fn [{:keys [bytes signature cid]}]
+                  (and (= expected bytes) (string? cid)
+                       (ed/verify (first roots) bytes signature)))
+        opts {:request (req) :root-verifier adapter}]
+    (is (= :granted (reason (chain/verify p opts))))
+    (is (= :dango/not-covered (reason (chain/verify p (assoc opts :request (req :req/kind :data/delete))))))
+    (is (= :dango/expired (reason (chain/verify p (assoc opts :request (req :req/now 1800000000))))))
+    (is (= :dango/bad-seal (reason (chain/verify (assoc p :seal (vec (repeat 64 0))) opts))))
+    (is (= :dango/bad-signature (reason (chain/verify p (assoc opts :roots roots :root-verifier (constantly false))))))))
+
+(deftest external-root-adapter-refuses-unresolved-or-failed-verification
+  (doseq [adapter [(constantly (js/Promise.resolve true)) (constantly {:valid true})
+                   (fn [_] (throw (js/Error. "RPC unavailable")))]]
+    (is (= :dango/bad-signature
+           (reason (chain/verify (chain/present token) {:roots roots :request (req) :root-verifier adapter}))))))
+
 (deftest root-token-grants-what-it-says
   (is (= :granted (reason (decide token))))
   (is (= :granted (reason (decide token (req :req/kind :data/write)))))
